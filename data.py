@@ -231,10 +231,22 @@ if __name__ == "__main__":
     
     # 房地产
     "AMT", "PLD", "CCI", "EQIX", "PSA", "DLR", "O", "WELL", "AVB", "EQR",
-    "SPG", "VTR", "BXP", "ARE", "MAA", "UDR", "HST", "KIM", "REG"]
+    "SPG", "VTR", "BXP", "ARE", "MAA", "UDR", "HST", "KIM", "REG", "ESS",
+    
+    # 中概股
+    "BABA", "JD", "PDD", "BIDU", "NIO", "XPEV", "LI", "TME", "BILI", "IQ",
+    
+    # ETF
+    "SPY", "QQQ", "DIA", "IWM", "VOO", "IVV", "ARKK", "XLF", "XLK", "XLE", 
+    "VNQ", "TLT", "HYG", "EEM", "GDX", "VTI", "IEMG", "XLY", "XLP", "USO",
+
+    # 指数
+    "^GSPC", "^NDX", "^DJI", "^RUT", "^VIX", 
+    "^IXIC", "^HSI", "000001.SS", "^GDAXI", "^FTSE",
+    ]
     try:
         for ticker in tqdm(symbols):
-            data = download_and_prepare_data(ticker, '2019-01-01', '2024-01-01')
+            data = download_and_prepare_data(ticker, '1980-01-01', '2024-01-01')
             print("\nFirst few rows:")
             print(data.head())
             print("\nData shape:", data.shape)
