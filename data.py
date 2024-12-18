@@ -2,9 +2,33 @@ import yfinance as yf
 import talib as ta
 import pandas as pd
 import numpy as np
-from sklearn.preprocessing import StandardScaler
-import matplotlib.pyplot as plt
 from scipy.fft import fft, ifft, fftfreq
+from tqdm import tqdm
+
+def rolling_normalize(series, window=21):
+    """
+    Apply rolling window normalization to a time series
+    
+    Parameters:
+    series (pd.Series): Input time series
+    window (int): Size of rolling window
+    
+    Returns:
+    pd.Series: Normalized series
+    """
+    rolling_mean = series.rolling(window=window, min_periods=1).mean()
+    rolling_std = series.rolling(window=window, min_periods=1).std()
+    
+    # Add small constant to avoid division by zero
+    eps = 1e-8
+    normalized = (series - rolling_mean) / (rolling_std + eps)
+    
+    # Forward fill NaN values at the beginning
+    normalized = normalized.fillna(method='ffill')
+    # Backward fill any remaining NaN values
+    normalized = normalized.fillna(method='bfill')
+    
+    return normalized
 
 def calculate_connors_rsi(data, rsi_period=3, streak_period=2, rank_period=100):
     """Calculate Connors RSI"""
@@ -103,7 +127,16 @@ def apply_fft_filter(data, cutoff_period):
     
     return pd.Series(filtered_prices, index=data.index)
 
-def download_and_prepare_data(symbol, start_date, end_date):
+def download_and_prepare_data(symbol, start_date, end_date, window=21):
+    """
+    Download and prepare stock data with rolling window normalization
+    
+    Parameters:
+    symbol (str): Stock symbol
+    start_date (str): Start date
+    end_date (str): End date
+    window (int): Size of rolling window for normalization
+    """
     # Download stock data
     stock = yf.download(symbol, start=start_date, end=end_date)
 
@@ -139,67 +172,74 @@ def download_and_prepare_data(symbol, start_date, end_date):
     stock['FFT_21'] = apply_fft_filter(stock, 21)
     stock['FFT_63'] = apply_fft_filter(stock, 63)
     
-    # Forward fill any remaining NaN values from indicators
+    # Forward fill any NaN values from indicators
     stock = stock.fillna(method='ffill')
     
     # Backward fill any remaining NaN values at the beginning
     stock = stock.fillna(method='bfill')
     
-    # Scale data
-    scaler = StandardScaler()
-    cols_to_scale = ['Open', 'High', 'Low', 'Close', 'Volume', 
-                     'MA5', 'MA20', 'MACD', 'RSI', 'Upper', 'Lower',
-                     'Volume_MA5', 'Kalman_Price', 'FFT_21', 'FFT_63']
+    # Apply rolling window normalization to all columns
+    columns_to_normalize = [
+        'Open', 'High', 'Low', 'Close', 'Volume',
+        'MA5', 'MA20', 'MACD', 'MACD_Signal', 'MACD_Hist',
+        'RSI', 'Upper', 'Middle', 'Lower', 'Volume_MA5',
+        'CRSI', 'Kalman_Price', 'Kalman_Trend',
+        'FFT_21', 'FFT_63'
+    ]
     
-    # Ensure all columns exist before scaling
-    missing_cols = [col for col in cols_to_scale if col not in stock.columns]
-    if missing_cols:
-        raise ValueError(f"Missing columns: {missing_cols}")
-    
-    stock[cols_to_scale] = scaler.fit_transform(stock[cols_to_scale])
-    
-    # Don't scale percentage-based indicators
-    stock['CRSI'] = stock['CRSI'].clip(0, 100)
+    for col in columns_to_normalize:
+        if col in stock.columns:
+            stock[col] = rolling_normalize(stock[col], window=window)
     
     return stock
 
+def load_data_from_csv(file_path):
+    data = pd.read_csv(file_path)
+    data['Date'] = pd.to_datetime(data['Date'])
+    data.set_index('Date', inplace=True)
+    return data
+
 if __name__ == "__main__":
     # Test code with error handling
+    symbols = [# 科技股
+    "AAPL", "MSFT", "GOOGL", "AMZN", "META", "NVDA", "TSLA", "AMD", "INTC", "CRM", 
+    "ADBE", "NFLX", "CSCO", "ORCL", "QCOM", "IBM", "AMAT", "MU", "NOW", "SNOW",
+    
+    # 金融股
+    "JPM", "BAC", "WFC", "GS", "MS", "C", "BLK", "AXP", "V", "MA",
+    "COF", "USB", "PNC", "SCHW", "BK", "TFC", "AIG", "MET", "PRU", "ALL",
+    
+    # 医疗保健
+    "JNJ", "UNH", "PFE", "ABBV", "MRK", "TMO", "ABT", "DHR", "BMY", "LLY",
+    "AMGN", "GILD", "ISRG", "CVS", "CI", "HUM", "BIIB", "VRTX", "REGN", "ZTS",
+    
+    # 消费品
+    "PG", "KO", "PEP", "WMT", "HD", "MCD", "NKE", "SBUX", "TGT", "LOW",
+    "COST", "DIS", "CMCSA", "VZ", "T", "CL", "EL", "KMB", "GIS", "K", "PDD", "GOTU",
+    
+    # 工业
+    "BA", "GE", "MMM", "CAT", "HON", "UPS", "LMT", "RTX", "DE", "EMR",
+    "FDX", "NSC", "UNP", "WM", "ETN", "PH", "ROK", "CMI", "IR", "GD",
+    
+    # 能源
+    "XOM", "CVX", "COP", "EOG", "SLB", "MPC", "PSX", "VLO", "OXY",
+    "KMI", "WMB", "EP", "HAL", "DVN", "HES", "MRO", "APA", "FANG", "BKR",
+    
+    # 材料
+    "LIN", "APD", "ECL", "SHW", "FCX", "NEM", "NUE", "VMC", "MLM", "DOW",
+    "DD", "PPG", "ALB", "EMN", "CE", "CF", "MOS", "IFF", "FMC", "SEE",
+    
+    # 房地产
+    "AMT", "PLD", "CCI", "EQIX", "PSA", "DLR", "O", "WELL", "AVB", "EQR",
+    "SPG", "VTR", "BXP", "ARE", "MAA", "UDR", "HST", "KIM", "REG"]
     try:
-        data = download_and_prepare_data('AAPL', '2019-01-01', '2024-01-01')
-        print("\nFirst few rows:")
-        print(data.head())
-        print("\nData shape:", data.shape)
-        print("\nColumns:", data.columns.tolist())
-        
-        # # Plot some of the new indicators
-        # plt.figure(figsize=(15, 10))
-        
-        # # Plot 1: Price and filtered versions
-        # plt.subplot(3, 1, 1)
-        # plt.plot(data.index, data['Close'], label='Close Price', alpha=0.5)
-        # plt.plot(data.index, data['Kalman_Price'], label='Kalman Filtered')
-        # plt.plot(data.index, data['FFT_21'], label='FFT 21-day filter')
-        # plt.legend()
-        # plt.title('Price Comparison')
-        
-        # # Plot 2: Connors RSI
-        # plt.subplot(3, 1, 2)
-        # plt.plot(data.index, data['CRSI'], label='Connors RSI')
-        # plt.axhline(y=80, color='r', linestyle='--')
-        # plt.axhline(y=20, color='g', linestyle='--')
-        # plt.legend()
-        # plt.title('Connors RSI')
-        
-        # # Plot 3: Kalman Trend
-        # plt.subplot(3, 1, 3)
-        # plt.plot(data.index, data['Kalman_Trend'], label='Kalman Trend')
-        # plt.axhline(y=0, color='r', linestyle='--')
-        # plt.legend()
-        # plt.title('Kalman Trend')
-        
-        # plt.tight_layout()
-        # plt.show()
+        for ticker in tqdm(symbols):
+            data = download_and_prepare_data(ticker, '2019-01-01', '2024-01-01')
+            print("\nFirst few rows:")
+            print(data.head())
+            print("\nData shape:", data.shape)
+            print("\nColumns:", data.columns.tolist())
+            data.to_csv(f'data\{ticker}.csv', index=True)
         
     except Exception as e:
         print(f"Error occurred: {str(e)}")
