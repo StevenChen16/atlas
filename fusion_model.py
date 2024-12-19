@@ -22,7 +22,8 @@ def combine_stock_data(symbols, start_date, end_date):
     
     Args:
         symbols (list): 股票代码列表
-        start_date (str): 开始日期
+        start_date (str): 开始日期/
+        
         end_date (str): 结束日期
     
     Returns:
@@ -32,7 +33,8 @@ def combine_stock_data(symbols, start_date, end_date):
     
     for symbol in tqdm(symbols):
         # 获取单个股票数据
-        data = download_and_prepare_data(symbol, start_date, end_date)
+        # data = download_and_prepare_data(symbol, start_date, end_date)
+        data = load_data_from_csv(f"./data/{symbol}.csv")
 
         if not data.empty:
             # 将数据添加到列表中
@@ -383,7 +385,8 @@ class ATLASCNNFusion(nn.Module):
 
 # 训练函数
 def train_fusion_model(model, train_loader, val_loader, 
-                      n_epochs=50, device='cuda', learning_rate=0.0001):
+                      n_epochs=50, device='cuda', learning_rate=0.0001,
+                      checkpoint_dir='checkpoints'):
     """
     训练融合模型的函数
     
@@ -394,7 +397,17 @@ def train_fusion_model(model, train_loader, val_loader,
         n_epochs: 训练轮数
         device: 训练设备
         learning_rate: 学习率
+        checkpoint_dir: 模型保存路径
     """
+    from torch.utils.tensorboard import SummaryWriter
+    import os
+    
+    # Create checkpoint directory if it doesn't exist
+    os.makedirs(checkpoint_dir, exist_ok=True)
+    
+    # Initialize tensorboard writer
+    writer = SummaryWriter()
+    
     criterion = EnhancedCombinedLoss()
     optimizer = torch.optim.AdamW(
         model.parameters(),
@@ -402,16 +415,15 @@ def train_fusion_model(model, train_loader, val_loader,
         weight_decay=0.01
     )
     
-    # 使用Cosine退火学习率
     scheduler = torch.optim.lr_scheduler.CosineAnnealingWarmRestarts(
         optimizer, T_0=5, T_mult=2, eta_min=1e-6
     )
     
-    # 初始化早停
     best_val_loss = float('inf')
     patience = 30
     patience_counter = 0
     best_model_state = None
+    global_step = 0
     
     for epoch in range(n_epochs):
         model.train()
@@ -421,8 +433,7 @@ def train_fusion_model(model, train_loader, val_loader,
         }
         
         pbar = tqdm(train_loader, desc=f'Epoch {epoch+1}/{n_epochs}')
-        for batch in pbar:
-            # 解包数据
+        for batch_idx, batch in enumerate(pbar):
             sequence = batch['sequence'].to(device)
             events = batch['events'].to(device)
             time_distances = batch['time_distances'].to(device)
@@ -432,7 +443,6 @@ def train_fusion_model(model, train_loader, val_loader,
             optimizer.zero_grad()
             
             try:
-                # 前向传播
                 predictions, tmdo_features, group_features = model(
                     sequence, events, time_distances
                 )
@@ -441,7 +451,6 @@ def train_fusion_model(model, train_loader, val_loader,
                     print("Skip this batch due to NaN")
                     continue
                 
-                # 计算损失
                 loss, metrics = criterion(
                     predictions,
                     target,
@@ -450,18 +459,14 @@ def train_fusion_model(model, train_loader, val_loader,
                     group_features
                 )
                 
-                # 检查loss是否为NaN
                 if torch.isnan(loss):
                     print("NaN loss detected!")
                     continue
                 
-                # 反向传播
                 loss.backward()
                 
-                # 更严格的梯度裁剪
                 torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=0.5)
                 
-                # 监控梯度
                 grad_norm = 0
                 for p in model.parameters():
                     if p.grad is not None:
@@ -472,16 +477,22 @@ def train_fusion_model(model, train_loader, val_loader,
                 optimizer.step()
                 scheduler.step()
                 
-                # 更新指标
+                # Log training metrics to tensorboard
+                writer.add_scalar('Train/Loss', loss.item(), global_step)
+                writer.add_scalar('Train/GradientNorm', grad_norm, global_step)
+                writer.add_scalar('Train/LearningRate', optimizer.param_groups[0]['lr'], global_step)
+                
                 for k, v in metrics.items():
                     if not torch.isnan(torch.tensor(v)):
                         total_metrics[k] += v
+                        writer.add_scalar(f'Train/{k}', v, global_step)
+                
+                global_step += 1
                 
             except RuntimeError as e:
                 print(f"Error during training: {e}")
                 continue
             
-            # 更新进度条,过滤NaN值
             valid_metrics = {
                 k: v/len(pbar) 
                 for k, v in total_metrics.items() 
@@ -489,29 +500,25 @@ def train_fusion_model(model, train_loader, val_loader,
             }
             pbar.set_postfix({'loss': loss.item(), **valid_metrics})
         
-        # 打印当前学习率
         print(f"Current learning rate: {optimizer.param_groups[0]['lr']}")
         
-        # 验证
+        # Validation
         model.eval()
         val_loss = 0
         val_metrics = {k: 0 for k in total_metrics.keys()}
         
         with torch.no_grad():
             for batch in val_loader:
-                # 解包数据
                 sequence = batch['sequence'].to(device)
                 events = batch['events'].to(device)
                 time_distances = batch['time_distances'].to(device)
                 target = batch['target'].to(device)
                 current_price = batch['current_price'].to(device)
                 
-                # 前向传播
                 predictions, tmdo_features, group_features = model(
                     sequence, events, time_distances
                 )
                 
-                # 计算损失
                 loss, metrics = criterion(
                     predictions,
                     target,
@@ -520,7 +527,6 @@ def train_fusion_model(model, train_loader, val_loader,
                     group_features
                 )
                 
-                # 只累加非NaN的loss
                 if not torch.isnan(loss):
                     val_loss += loss.item()
                     for k, v in metrics.items():
@@ -529,27 +535,60 @@ def train_fusion_model(model, train_loader, val_loader,
         
         val_loss /= len(val_loader)
         
-        # 打印验证指标
+        # Log validation metrics to tensorboard
+        writer.add_scalar('Validation/Loss', val_loss, epoch)
+        for k, v in val_metrics.items():
+            writer.add_scalar(f'Validation/{k}', v/len(val_loader), epoch)
+        
         print(f"\nEpoch {epoch+1} Validation Metrics:")
         print(f"Loss: {val_loss:.4f}")
         for k, v in val_metrics.items():
             print(f"{k}: {v/len(val_loader):.4f}")
         
-        # 早停检查
+        # Save checkpoint every 5 epochs
+        if (epoch + 1) % 5 == 0:
+            checkpoint = {
+                'epoch': epoch,
+                'model_state_dict': model.state_dict(),
+                'optimizer_state_dict': optimizer.state_dict(),
+                'scheduler_state_dict': scheduler.state_dict(),
+                'val_loss': val_loss,
+                'global_step': global_step
+            }
+            torch.save(
+                checkpoint,
+                os.path.join(checkpoint_dir, f'checkpoint_epoch_{epoch+1}.pt')
+            )
+        
+        # Early stopping and best model saving
         if val_loss < best_val_loss:
             best_val_loss = val_loss
             best_model_state = model.state_dict()
             patience_counter = 0
+            
+            # Save best model
+            checkpoint = {
+                'epoch': epoch,
+                'model_state_dict': model.state_dict(),
+                'optimizer_state_dict': optimizer.state_dict(),
+                'scheduler_state_dict': scheduler.state_dict(),
+                'val_loss': val_loss,
+                'global_step': global_step
+            }
+            torch.save(
+                checkpoint,
+                os.path.join(checkpoint_dir, 'best_model.pt')
+            )
         else:
             patience_counter += 1
             if patience_counter >= patience:
                 print("\nEarly stopping triggered")
                 break
     
-    # 加载最佳模型
     if best_model_state is not None:
         model.load_state_dict(best_model_state)
     
+    writer.close()
     return model
 
 # 主函数示例
@@ -561,8 +600,58 @@ def main():
     num_event_types = 10  # 事件类型数量
     
     # 数据准备和训练过程
-    symbols = ['AAPL', 'MSFT']
-    data = combine_stock_data(symbols, '1980-01-01', '2024-01-01')
+    symbols = [
+        # 科技股
+    "AAPL", "MSFT", "GOOGL", "AMZN", "META", "NVDA", "TSLA", "AMD", "INTC", "CRM", 
+    "ADBE", "NFLX", "CSCO", "ORCL", "QCOM", "IBM", "AMAT", "MU", "NOW", "SNOW",
+    
+    # 金融股
+    "JPM", "BAC", "WFC", "GS", "MS", "C", "BLK", "AXP", "V", "MA",
+    "COF", "USB", "PNC", "SCHW", "BK", "TFC", "AIG", "MET", "PRU", "ALL",
+    
+    # 医疗保健
+    "JNJ", "UNH", "PFE", "ABBV", "MRK", "TMO", "ABT", "DHR", "BMY", "LLY",
+    "AMGN", "GILD", "ISRG", "CVS", "CI", "HUM", "BIIB", "VRTX", "REGN", "ZTS",
+    
+    # 消费品
+    "PG", "KO", "PEP", "WMT", "HD", "MCD", "NKE", "SBUX", "TGT", "LOW",
+    "COST", "DIS", "CMCSA", "VZ", "T", "CL", "EL", "KMB", "GIS", "K", "PDD", "GOTU",
+    
+    # 工业
+    "BA", "GE", "MMM", "CAT", "HON", "UPS", "LMT", "RTX", "DE", "EMR",
+    "FDX", "NSC", "UNP", "WM", "ETN", "PH", "ROK", "CMI", "IR", "GD",
+    
+    # 能源
+    "XOM", "CVX", "COP", "EOG", "SLB", "MPC", "PSX", "VLO", "OXY",
+    "KMI", "WMB", "EP", "HAL", "DVN", "HES", "MRO", "APA", "FANG", "BKR",
+    
+    # 材料
+    "LIN", "APD", "ECL", "SHW", "FCX", "NEM", "NUE", "VMC", "MLM", "DOW",
+    "DD", "PPG", "ALB", "EMN", "CE", "CF", "MOS", "IFF", "FMC", "SEE",
+    
+    # 房地产
+    "AMT", "PLD", "CCI", "EQIX", "PSA", "DLR", "O", "WELL", "AVB", "EQR",
+    "SPG", "VTR", "BXP", "ARE", "MAA", "UDR", "HST", "KIM", "REG", "ESS",
+    
+    # 中概股
+    "BABA", "JD", "PDD", "BIDU", "NIO", "XPEV", "LI", "TME", "BILI", "IQ",
+    
+    # ETF
+    "SPY", "QQQ", "DIA", "IWM", "VOO", "IVV", "ARKK", "XLF", "XLK", "XLE", 
+    "VNQ", "TLT", "HYG", "EEM", "GDX", "VTI", "IEMG", "XLY", "XLP", "USO",
+
+    # 指数
+    "^GSPC", "^NDX", "^DJI", "^RUT", "^VIX", 
+    "^IXIC", "^HSI", "000001.SS", "^GDAXI", "^FTSE",
+    ]
+    symbols = [
+        "AAPL", "MSFT", "GOOGL", "AMZN", "META", "NVDA", "TSLA", "AMD", "INTC", "CRM", 
+        "^GSPC", "^NDX", "^DJI", "^IXIC",
+        "UNH", "ABBV","LLY",
+        "FANG", "DLR", "PSA", "BABA", "JD", "BIDU",
+        "QQQ"
+    ]
+    data = combine_stock_data(symbols, '2020-01-01', '2024-01-01')
     events = generate_event_data(data)  # 需要实现这个函数
     
     # 划分训练集和验证集
@@ -576,13 +665,13 @@ def main():
     # 创建数据加载器
     train_loader = DataLoader(
         train_dataset,
-        batch_size=40,
+        batch_size=3200,
         shuffle=True,
         num_workers=4
     )
     val_loader = DataLoader(
         val_dataset,
-        batch_size=40,
+        batch_size=3200,
         shuffle=False,
         num_workers=4
     )

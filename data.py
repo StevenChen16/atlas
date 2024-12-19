@@ -203,11 +203,11 @@ if __name__ == "__main__":
     # Test code with error handling
     symbols = [# 科技股
     "AAPL", "MSFT", "GOOGL", "AMZN", "META", "NVDA", "TSLA", "AMD", "INTC", "CRM", 
-    "ADBE", "NFLX", "CSCO", "ORCL", "QCOM", "IBM", "AMAT", "MU", "NOW", "SNOW",
+    "ADBE", "NFLX", "CSCO", "ORCL", "QCOM", "IBM", "AMAT", "MU", "NOW", "SNOW", "AVGO"
     
     # 金融股
     "JPM", "BAC", "WFC", "GS", "MS", "C", "BLK", "AXP", "V", "MA",
-    "COF", "USB", "PNC", "SCHW", "BK", "TFC", "AIG", "MET", "PRU", "ALL",
+    "COF", "USB", "PNC", "SCHW", "BK", "TFC", "AIG", "MET", "PRU", "ALL", "ICE", "MCO"
     
     # 医疗保健
     "JNJ", "UNH", "PFE", "ABBV", "MRK", "TMO", "ABT", "DHR", "BMY", "LLY",
@@ -244,14 +244,21 @@ if __name__ == "__main__":
     "^GSPC", "^NDX", "^DJI", "^RUT", "^VIX", 
     "^IXIC", "^HSI", "000001.SS", "^GDAXI", "^FTSE",
     ]
+    symbols = [
+        "AAPL", "MSFT", "GOOGL", "AMZN", "META", "NVDA", "TSLA", "AMD", "INTC", "CRM", 
+        "^GSPC", "^NDX", "^DJI", "^IXIC",
+        "UNH", "ABBV","LLY",
+        "FANG", "DLR", "PSA", "BABA", "JD", "BIDU",
+        "QQQ"
+    ]
     try:
         for ticker in tqdm(symbols):
-            data = download_and_prepare_data(ticker, '1980-01-01', '2024-01-01')
+            data = download_and_prepare_data(ticker, '2020-01-01', '2024-01-01')
             print("\nFirst few rows:")
             print(data.head())
             print("\nData shape:", data.shape)
             print("\nColumns:", data.columns.tolist())
-            data.to_csv(f'data\{ticker}.csv', index=True)
+            data.to_csv(f'data_short\{ticker}.csv', index=True)
         
     except Exception as e:
         print(f"Error occurred: {str(e)}")
