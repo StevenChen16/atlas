@@ -604,11 +604,11 @@ def train_model(model, train_loader, val_loader, num_epochs=50, device='cuda'):
 def main():
     # 加载数据
     symbols = [
-        "AAPL", "MSFT", "GOOGL", "AMZN", "META", "NVDA", "TSLA", "AMD", "INTC", "CRM", 
+        "AAPL", "MSFT", "GOOGL", "AMZN", "META", "NVDA", "TSLA", "AMD", #"INTC", "CRM", 
         "^GSPC", "^NDX", "^DJI", "^IXIC",
-        "UNH", "ABBV","LLY",
-        "FANG", "DLR", "PSA", "BABA", "JD", "BIDU",
-        "QQQ"
+        # "UNH", "ABBV","LLY",
+        # "FANG", "DLR", "PSA", "BABA", "JD", "BIDU",
+        # "QQQ"
     ]
     data = combine_stock_data(symbols, '2020-01-01', '2024-01-01')
 
@@ -619,8 +619,8 @@ def main():
     train_dataset, val_dataset = torch.utils.data.random_split(dataset, [train_size, val_size])
 
     # 创建数据加载器
-    train_loader = DataLoader(train_dataset, batch_size=1, shuffle=True)
-    val_loader = DataLoader(val_dataset, batch_size=1, shuffle=False)
+    train_loader = DataLoader(train_dataset, batch_size=3, shuffle=True)
+    val_loader = DataLoader(val_dataset, batch_size=3, shuffle=False)
 
     # 创建模型
     # model = AdaptiveFinancialCNN(input_dim=len(dataset.feature_order))
