@@ -1,57 +1,57 @@
 # Stock Market Prediction with TMDO and 2D-CNN
 
-这个项目结合了两种创新的方法来预测股票市场：时序多维差异算子（TMDO）和专门设计的二维CNN架构。
+This project combines two innovative approaches to predict the stock market: Temporal Multi-Dimensional Operator (TMDO) and a specially designed 2D-CNN architecture.
 
-## 核心理念
+## Core Concepts
 
-### TMDO (时序多维差异算子)
+### TMDO (Temporal Multi-Dimensional Operator)
 
-TMDO是一个创新的数学算子，它同时捕捉了两个关键维度的信息：
-1. 时间维度：通过二阶时间差分捕捉指标的"加速度"
-2. 指标维度：通过加权差分捕捉不同指标间的关系
+TMDO is an innovative mathematical operator that simultaneously captures information in two key dimensions:
+1. Temporal dimension: Captures indicator "acceleration" through second-order time differentiation
+2. Indicator dimension: Captures relationships between different indicators through weighted differentiation
 
-数学表达式：
+Mathematical expression:
 $$D(f)_{t,i} = \alpha(\frac{\partial^2 f_i}{\partial t^2}) + \beta(\sum_{j \neq i} w_{ij}(f_{t,i} - f_{t,j}))$$
 
-其中：
-- $\frac{\partial^2 f_i}{\partial t^2}$ 捕捉单个指标的时间变化趋势
-- $\sum_{j \neq i} w_{ij}(f_{t,i} - f_{t,j})$ 捕捉指标间的相互关系
-- $w_{ij}$ 是可学习的权重矩阵，反映指标间的相关性
-- $\alpha,\beta$ 是平衡系数，用于调节两个分量的相对重要性
+Where:
+- $\frac{\partial^2 f_i}{\partial t^2}$ captures temporal trend changes of individual indicators
+- $\sum_{j \neq i} w_{ij}(f_{t,i} - f_{t,j})$ captures inter-indicator relationships
+- $w_{ij}$ is a learnable weight matrix reflecting indicator correlations
+- $\alpha,\beta$ are balance coefficients that adjust the relative importance of both components
 
-这个算子特别适合金融时间序列，因为它：
-1. 能够识别加速上涨/下跌趋势（通过二阶差分）
-2. 考虑指标间的相互影响（通过加权差分）
-3. 适应性强（通过可学习权重）
+This operator is particularly suitable for financial time series because it:
+1. Can identify accelerating upward/downward trends (through second-order differentiation)
+2. Considers inter-indicator influences (through weighted differentiation)
+3. Highly adaptive (through learnable weights)
 
-### 2D-CNN架构
+### 2D-CNN Architecture
 
-这个方法的创新之处在于将金融时间序列重新组织为"图像"格式：
-- x轴：时间
-- y轴：不同指标，按与价格的相关性排序
+The innovation of this method lies in reorganizing financial time series into an "image" format:
+- x-axis: Time
+- y-axis: Different indicators, sorted by their correlation with price
 
-指标排列示意（y轴）：
-1. 价格相关指标（Close, Open, High, Low等）
-2. 技术指标（MA, MACD等）
-3. 成交量相关指标
-4. 其他市场指标
+Indicator arrangement illustration (y-axis):
+1. Price-related indicators (Close, Open, High, Low, etc.)
+2. Technical indicators (MA, MACD, etc.)
+3. Volume-related indicators
+4. Other market indicators
 
-为什么这样组织？
-- 相关指标在y轴上相邻，便于卷积核捕捉它们之间的关系
-- 不同尺寸的卷积核可以捕捉不同类型的模式
+Why organize this way?
+- Related indicators are adjacent on the y-axis, facilitating relationship capture by convolution kernels
+- Different kernel sizes can capture different types of patterns
 
-特殊设计的卷积核：
-1. 长期趋势识别核 (3,50)
-   - 纵向小：只关注少数相关指标
-   - 横向大：捕捉长期趋势
+Specially designed convolution kernels:
+1. Long-term trend recognition kernel (3,50)
+   - Vertically small: focuses on few related indicators
+   - Horizontally large: captures long-term trends
    ```
    [--------- 50 ---------]
    [--------- 50 ---------]
    [--------- 50 ---------]
    ```
 
-2. 形态识别核 (5,25)
-   - 中等大小：用于识别头肩顶等经典形态
+2. Pattern recognition kernel (5,25)
+   - Medium size: for identifying classic patterns like head and shoulders
    ```
    [------ 25 ------]
    [------ 25 ------]
@@ -60,8 +60,8 @@ $$D(f)_{t,i} = \alpha(\frac{\partial^2 f_i}{\partial t^2}) + \beta(\sum_{j \neq 
    [------ 25 ------]
    ```
 
-3. 价格-成交量关系核 (7,15)
-   - 更高的纵向维度：可以同时考虑更多指标
+3. Price-volume relationship kernel (7,15)
+   - Higher vertical dimension: can consider more indicators simultaneously
    ```
    [----- 15 -----]
    [----- 15 -----]
@@ -72,64 +72,64 @@ $$D(f)_{t,i} = \alpha(\frac{\partial^2 f_i}{\partial t^2}) + \beta(\sum_{j \neq 
    [----- 15 -----]
    ```
 
-4. 短期模式核 (10,10)
-   - 正方形：捕捉局部平衡关系
+4. Short-term pattern kernel (10,10)
+   - Square: captures local balance relationships
    ```
    [---- 10 ----]
    [---- 10 ----]
    [---- 10 ----]
-   ...（10个）
+   ...（10 rows）
    ```
 
-5. 指标关联核 (15,3)
-   - 纵向大：强调指标间关系
-   - 横向小：关注短期联动
+5. Indicator correlation kernel (15,3)
+   - Vertically large: emphasizes inter-indicator relationships
+   - Horizontally small: focuses on short-term linkages
    ```
    [- 3 -]
    [- 3 -]
    [- 3 -]
-   ...（15个）
+   ...（15 rows）
    ```
 
-## 代码结构
+## Code Structure
 
-- `model.py`: TMDO和基础模型实现
-- `CNN.py`: CNN架构和专用卷积层实现
-- `train.py`: 训练逻辑和数据处理
+- `model.py`: TMDO and base model implementation
+- `CNN.py`: CNN architecture and specialized convolution layer implementation
+- `train.py`: Training logic and data processing
 
-## 实现细节
+## Implementation Details
 
-1. 可变形卷积的使用：
-   - 允许卷积核形状动态调整
-   - 更好地适应不规则的市场模式
+1. Use of deformable convolution:
+   - Allows dynamic adjustment of kernel shapes
+   - Better adapts to irregular market patterns
 
-2. 多尺度特征融合：
+2. Multi-scale feature fusion:
    ```python
    def forward(self, x):
-       trend = self.trend_conv(x)      # 长期趋势
-       pattern = self.pattern_conv(x)   # 形态特征
-       pv_relation = self.price_volume_conv(x)  # 价格-成交量关系
-       short_term = self.short_term_conv(x)     # 短期特征
-       indicator = self.indicator_conv(x)        # 指标关系
+       trend = self.trend_conv(x)      # Long-term trend
+       pattern = self.pattern_conv(x)   # Pattern features
+       pv_relation = self.price_volume_conv(x)  # Price-volume relationship
+       short_term = self.short_term_conv(x)     # Short-term features
+       indicator = self.indicator_conv(x)        # Indicator relationships
        
        return trend + pattern + pv_relation + short_term + indicator
    ```
 
-3. 损失函数设计：
-   - MSE损失：基础预测准确性
-   - 方向预测损失：涨跌方向准确性
-   - 连续性损失：预测平滑性
-   - TMDO正则化：特征提取质量
-   - 特征组一致性：不同层面特征的协调性
+3. Loss function design:
+   - MSE loss: Basic prediction accuracy
+   - Direction prediction loss: Up/down direction accuracy
+   - Continuity loss: Prediction smoothness
+   - TMDO regularization: Feature extraction quality
+   - Feature group consistency: Coordination of different aspect features
 
-## 使用方法
+## Usage
 
-1. 数据准备：
+1. Data preparation:
 ```python
 data = combine_stock_data(symbols, start_date, end_date)
 ```
 
-2. 创建模型：
+2. Create model:
 ```python
 model = EnhancedStockPredictor(
     input_dim=21,
@@ -140,7 +140,7 @@ model = EnhancedStockPredictor(
 )
 ```
 
-3. 训练：
+3. Training:
 ```python
 trained_model = train_enhanced_model(
     model,
@@ -151,4 +151,21 @@ trained_model = train_enhanced_model(
 )
 ```
 
-这个项目尝试将传统的技术分析理念（如趋势、形态识别）与现代深度学习方法相结合，通过创新的数据组织方式和专门的模型架构来提升预测效果。
+This project attempts to combine traditional technical analysis concepts (such as trends and pattern recognition) with modern deep learning methods through innovative data organization and specialized model architecture to enhance prediction performance.
+
+# Citation
+
+If our work is helpful for your research, please consider citing:
+
+```bibtex
+@article{chen2023atlas,
+  title={Atlas-Cnn: A Novel Hybrid Deep Learning Architecture for Stock Market Prediction},
+  author={Chen, Yucheng},
+  year={2023},
+  journal={SSRN Electronic Journal},
+  doi={10.2139/ssrn.5099419},
+  url={https://ssrn.com/abstract=5099419}
+}
+```
+
+> The paper has been submitted to Elsevier Expert Systems with Applications and is under review.
