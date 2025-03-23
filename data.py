@@ -24,9 +24,9 @@ def rolling_normalize(series, window=21):
     normalized = (series - rolling_mean) / (rolling_std + eps)
     
     # Forward fill NaN values at the beginning
-    normalized = normalized.fillna(method='ffill')
+    normalized = normalized.ffill()
     # Backward fill any remaining NaN values
-    normalized = normalized.fillna(method='bfill')
+    normalized = normalized.bfill()
     
     return normalized
 
@@ -103,29 +103,68 @@ def apply_kalman_filter(data, measurement_noise=0.1, process_noise=0.01):
     
     return pd.Series(filtered_prices, index=data.index), pd.Series(trends, index=data.index)
 
-def apply_fft_filter(data, cutoff_period):
-    """Apply FFT filtering with specified cutoff period"""
-    prices = data['Close'].values.astype(np.float64)
+def apply_fft_filter_rolling(data, cutoff_period, window_size=252):
+    """
+    Apply FFT filtering with a rolling window approach to avoid look-ahead bias
+    
+    Parameters:
+    data (pd.DataFrame/Series): DataFrame with stock data or price Series
+    cutoff_period (int): The cutoff period for the low-pass filter
+    window_size (int): Size of the rolling window to use
+    
+    Returns:
+    pd.Series: Series of filtered prices with the same index as input data
+    """
+    # Get the price series (handle both DataFrame and Series inputs)
+    if isinstance(data, pd.DataFrame) and 'Close' in data.columns:
+        prices = data['Close'].values.astype(np.float64)
+        index = data.index
+    else:
+        prices = data.values.astype(np.float64) if isinstance(data, pd.Series) else np.array(data, dtype=np.float64)
+        index = data.index if isinstance(data, pd.Series) else None
+    
     n = len(prices)
+    filtered_prices = np.zeros(n)
     
-    # Detrend the prices to reduce edge effects
-    trend = np.linspace(prices[0], prices[-1], n)
-    detrended = prices - trend
+    # For the first few points where we don't have enough history,
+    # just use the original prices
+    min_window = max(cutoff_period * 3, 20)  # Ensure enough data for FFT
+    for i in range(min(min_window, n)):
+        filtered_prices[i] = prices[i]
     
-    # Perform FFT
-    fft_result = fft(detrended)
-    freqs = fftfreq(n, d=1)
+    # Process each point using only historical data
+    for i in range(min_window, n):
+        # Define the historical window (current point and earlier)
+        start_idx = max(0, i - window_size + 1)
+        window_data = prices[start_idx:i+1]
+        window_len = len(window_data)
+        
+        # Detrend the window data to reduce edge effects
+        # Only use data within the window for the trend
+        trend = np.linspace(window_data[0], window_data[-1], window_len)
+        detrended = window_data - trend
+        
+        # Perform FFT on the window
+        fft_result = fft(detrended)
+        freqs = fftfreq(window_len, d=1)
+        
+        # Create low-pass filter
+        filter_threshold = 1/cutoff_period
+        filter_mask = np.abs(freqs) < filter_threshold
+        fft_result_filtered = fft_result * filter_mask
+        
+        # Inverse FFT and add trend back
+        filtered_detrended = np.real(ifft(fft_result_filtered))
+        filtered_window = filtered_detrended + trend
+        
+        # Only use the last value (current time point)
+        filtered_prices[i] = filtered_window[-1]
     
-    # Create low-pass filter
-    filter_threshold = 1/cutoff_period
-    filter_mask = np.abs(freqs) < filter_threshold
-    fft_result_filtered = fft_result * filter_mask
-    
-    # Inverse FFT and add trend back
-    filtered_detrended = np.real(ifft(fft_result_filtered))
-    filtered_prices = filtered_detrended + trend
-    
-    return pd.Series(filtered_prices, index=data.index)
+    # Return as a pandas Series with the original index
+    if index is not None:
+        return pd.Series(filtered_prices, index=index)
+    else:
+        return filtered_prices
 
 def download_and_prepare_data(symbol, start_date, end_date, window=21):
     """
@@ -138,7 +177,7 @@ def download_and_prepare_data(symbol, start_date, end_date, window=21):
     window (int): Size of rolling window for normalization
     """
     # Download stock data
-    stock = yf.download(symbol, start=start_date, end=end_date)
+    stock = yf.download(symbol, start=start_date, end=end_date, progress=False)
 
     if isinstance(stock.columns, pd.MultiIndex):
         stock = stock.xs(symbol, level=1, axis=1) if symbol in stock.columns.levels[1] else stock
@@ -173,10 +212,10 @@ def download_and_prepare_data(symbol, start_date, end_date, window=21):
     stock['FFT_63'] = apply_fft_filter(stock, 63)
     
     # Forward fill any NaN values from indicators
-    stock = stock.fillna(method='ffill')
+    stock = stock.ffill()
     
     # Backward fill any remaining NaN values at the beginning
-    stock = stock.fillna(method='bfill')
+    stock = stock.bfill()
     
     # Apply rolling window normalization to all columns
     columns_to_normalize = [
